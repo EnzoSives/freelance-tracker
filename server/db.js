@@ -3,7 +3,7 @@ import path from 'node:path'
 import sqlite3 from 'sqlite3'
 import { open } from 'sqlite'
 
-const DATA_DIR = path.resolve('server/data')
+const DATA_DIR = process.env.DATA_DIR || path.resolve('server/data')
 const DB_FILE = path.join(DATA_DIR, 'tracker.db')
 
 let dbPromise
