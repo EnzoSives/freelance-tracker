@@ -43,6 +43,7 @@ export async function getDb() {
       password: process.env.PGPASSWORD,
       connectionString: process.env.DATABASE_URL || undefined,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      family: 4,
     })
     const client = await pool.connect()
     try {
