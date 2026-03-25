@@ -1,50 +1,76 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
+import pg from 'pg'
 
-const DATA_DIR = process.env.DATA_DIR || path.resolve('server/data')
-const DB_FILE = path.join(DATA_DIR, 'tracker.db')
+const { Pool } = pg
 
-let dbPromise
+let pool
 
-async function init(db) {
-  await db.exec(`
-    PRAGMA foreign_keys = ON;
+// Convert SQLite-style ? placeholders to PostgreSQL $1, $2, ...
+function toPositional(sql) {
+  let i = 0
+  return sql.replace(/\?/g, () => `$${++i}`)
+}
 
+async function init(client) {
+  await client.query(`
     CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      rate REAL NOT NULL,
+      rate DOUBLE PRECISION NOT NULL,
       currency TEXT NOT NULL,
       color TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS entries (
       id TEXT PRIMARY KEY,
-      client_id TEXT,
+      client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
       date TEXT NOT NULL,
-      hours REAL NOT NULL,
+      hours DOUBLE PRECISION NOT NULL,
       description TEXT NOT NULL DEFAULT '',
-      amount REAL NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+      amount DOUBLE PRECISION NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `)
 }
 
 export async function getDb() {
-  if (!dbPromise) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
-    dbPromise = open({
-      filename: DB_FILE,
-      driver: sqlite3.Database,
-    }).then(async (db) => {
-      await init(db)
-      return db
+  if (!pool) {
+    pool = new Pool({
+      host: process.env.PGHOST,
+      port: Number(process.env.PGPORT || 5432),
+      database: process.env.PGDATABASE,
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD,
+      connectionString: process.env.DATABASE_URL || undefined,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     })
+    const client = await pool.connect()
+    try {
+      await init(client)
+    } finally {
+      client.release()
+    }
   }
 
-  return dbPromise
+  return {
+    all: (sql, ...params) => pool.query(toPositional(sql), params).then(r => r.rows),
+    get: (sql, ...params) => pool.query(toPositional(sql), params).then(r => r.rows[0] ?? null),
+    run: (sql, ...params) => pool.query(toPositional(sql), params),
+    exec: (sql) => pool.query(sql),
+    transaction: async (fn) => {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await fn({
+          run: (sql, ...params) => client.query(toPositional(sql), params),
+        })
+        await client.query('COMMIT')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
+    },
+  }
 }

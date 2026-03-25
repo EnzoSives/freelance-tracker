@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
-import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import express from 'express'
 import cors from 'cors'
 import { getDb } from './db.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 const PORT = Number(process.env.PORT || 3001)
@@ -165,8 +165,7 @@ app.post('/api/import', async (req, res, next) => {
     const clients = Array.isArray(req.body?.clients) ? req.body.clients : []
     const entries = Array.isArray(req.body?.entries) ? req.body.entries : []
 
-    await db.exec('BEGIN')
-    try {
+    await db.transaction(async (trx) => {
       for (const rawClient of clients) {
         const client = {
           id: rawClient.id || crypto.randomUUID(),
@@ -180,8 +179,8 @@ app.post('/api/import', async (req, res, next) => {
           continue
         }
 
-        await db.run(
-          'INSERT OR IGNORE INTO clients (id, name, rate, currency, color) VALUES (?, ?, ?, ?, ?)',
+        await trx.run(
+          'INSERT INTO clients (id, name, rate, currency, color) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
           client.id,
           client.name,
           client.rate,
@@ -204,8 +203,8 @@ app.post('/api/import', async (req, res, next) => {
           continue
         }
 
-        await db.run(
-          'INSERT OR IGNORE INTO entries (id, client_id, date, hours, description, amount) VALUES (?, ?, ?, ?, ?, ?)',
+        await trx.run(
+          'INSERT INTO entries (id, client_id, date, hours, description, amount) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
           entry.id,
           entry.clientId,
           entry.date,
@@ -214,12 +213,7 @@ app.post('/api/import', async (req, res, next) => {
           entry.amount,
         )
       }
-
-      await db.exec('COMMIT')
-    } catch (error) {
-      await db.exec('ROLLBACK')
-      throw error
-    }
+    })
 
     res.status(204).end()
   } catch (error) {
@@ -228,10 +222,10 @@ app.post('/api/import', async (req, res, next) => {
 })
 
 if (process.env.NODE_ENV === 'production') {
-  const distPath = path.resolve(__dirname, '../dist')
-  app.use(express.static(distPath))
+  const DIST_DIR = join(__dirname, '../dist')
+  app.use(express.static(DIST_DIR))
   app.get('*', (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'))
+    res.sendFile(join(DIST_DIR, 'index.html'))
   })
 }
 
