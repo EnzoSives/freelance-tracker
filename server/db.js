@@ -36,13 +36,8 @@ async function init(client) {
 export async function getDb() {
   if (!pool) {
     pool = new Pool({
-      host: process.env.PGHOST,
-      port: Number(process.env.PGPORT || 5432),
-      database: process.env.PGDATABASE,
-      user: process.env.PGUSER,
-      password: process.env.PGPASSWORD,
-      connectionString: process.env.DATABASE_URL || undefined,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
       family: 4,
     })
     const client = await pool.connect()

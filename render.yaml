@@ -7,13 +7,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PGHOST
-        sync: false
-      - key: PGPORT
-        value: 5432
-      - key: PGDATABASE
-        value: postgres
-      - key: PGUSER
-        value: postgres
-      - key: PGPASSWORD
+      - key: DATABASE_URL
         sync: false
